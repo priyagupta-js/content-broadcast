@@ -1,0 +1,219 @@
+================================================================================
+  EDUBROADCAST – Frontend Notes
+  Content Broadcasting System | Frontend Technical Documentation
+================================================================================
+
+PROJECT OVERVIEW
+----------------
+EduBroadcast is a role-based content broadcasting platform for educational
+environments. Teachers upload content, principals approve or reject it, and
+students/public can view live content via a public URL.
+
+--------------------------------------------------------------------------------
+PROJECT STRUCTURE
+--------------------------------------------------------------------------------
+
+src/
+├── App.js                        # Root app with routing + providers
+├── index.js                      # React entry point
+├── index.css                     # Tailwind + global utility classes
+│
+├── context/
+│   └── AuthContext.js            # Global auth state (user, login, logout)
+│
+├── services/                     # ALL API calls live here — never in components
+│   ├── api.client.js             # Axios instance with auth interceptors
+│   ├── auth.service.js           # login(), logout()
+│   ├── content.service.js        # upload, getAll, getByTeacher, getLive
+│   └── approval.service.js       # approve(), reject(), getPending()
+│
+├── hooks/
+│   └── useAsync.js               # Generic async hook (loading/error/data)
+│
+├── utils/
+│   ├── helpers.js                # formatDate, formatFileSize, getScheduleStatus, constants
+│   └── mockData.js               # In-memory mock database (swap with real API)
+│
+├── components/
+│   ├── ui/
+│   │   └── index.js              # Spinner, Skeleton, EmptyState, ErrorState,
+│   │                             # StatusBadge, ScheduleBadge, Modal, StatCard,
+│   │                             # ContentCard – all reusable across pages
+│   └── layout/
+│       ├── Sidebar.js            # Collapsible sidebar + PageLayout wrapper
+│       └── ProtectedRoute.js     # Auth + role-based route guard
+│
+└── pages/
+    ├── LoginPage.js              # Email/password form with demo account shortcuts
+    ├── LivePage.js               # Public /live/:teacherId page
+    ├── NotFoundPage.js           # 404 fallback
+    ├── teacher/
+    │   ├── TeacherDashboard.js   # Stats + recent uploads + live link
+    │   ├── UploadContent.js      # Upload form with drag-drop file, validation
+    │   └── MyContent.js          # Content list with status filter + table view
+    └── principal/
+        ├── PrincipalDashboard.js # Stats + pending preview table
+        ├── PendingApprovals.js   # Approve / reject with mandatory reason modal
+        └── AllContent.js         # Full content list with search + status filter
+
+--------------------------------------------------------------------------------
+AUTHENTICATION FLOW
+--------------------------------------------------------------------------------
+
+1. User submits email + password on /login
+2. authService.login() is called — validates credentials (mock/real)
+3. On success: JWT token stored in localStorage as 'cbs_token', user object as 'cbs_user'
+4. AuthContext reads localStorage on mount and restores session
+5. All API calls attach the token via Axios request interceptor in api.client.js
+6. On logout: both localStorage keys are cleared and user is redirected to /login
+
+Token storage: localStorage (simple and replaceable — can be swapped to httpOnly
+cookies by modifying api.client.js interceptor and authService).
+
+--------------------------------------------------------------------------------
+ROLE-BASED ROUTING
+--------------------------------------------------------------------------------
+
+- ProtectedRoute wraps all authenticated pages
+- If not authenticated → redirect to /login
+- If wrong role (teacher accessing /principal) → redirect to their own dashboard
+- After login, role determines redirect:
+    teacher   → /teacher
+    principal → /principal
+- /live/:teacherId is fully public (no auth required)
+
+--------------------------------------------------------------------------------
+API INTEGRATION APPROACH
+--------------------------------------------------------------------------------
+
+All API calls are routed through the service layer:
+  services/auth.service.js       → authentication
+  services/content.service.js    → content CRUD
+  services/approval.service.js   → approval workflow
+
+Components NEVER make direct API calls. They call service methods.
+Services return plain JavaScript objects/arrays, never axios response objects.
+
+The api.client.js Axios instance:
+  - Injects Authorization: Bearer <token> on every request
+  - Normalizes error messages from response bodies
+  - Has a 15-second timeout
+
+REPLACING MOCK WITH REAL API:
+  The mock implementations in each service use mockData.js (in-memory store).
+  To connect a real backend, simply replace the mock logic with apiClient calls.
+  The component code stays identical — only the service internals change.
+
+  Example (content.service.js):
+  BEFORE: return mockDB.getContent();
+  AFTER:  const res = await apiClient.get('/content'); return res.data;
+
+--------------------------------------------------------------------------------
+STATE MANAGEMENT APPROACH
+--------------------------------------------------------------------------------
+
+No external state library (Redux, Zustand) was used intentionally to keep
+the codebase lightweight and maintainable.
+
+State strategy:
+  - AuthContext: global auth state only (user, token)
+  - useAsync hook: per-page async state (loading, data, error, refetch)
+  - useState: local UI state (modals, filters, form state)
+  - React Hook Form: form state (validation, dirty tracking, submission)
+
+This keeps state minimal and co-located with where it's used.
+
+--------------------------------------------------------------------------------
+FORM HANDLING & VALIDATION
+--------------------------------------------------------------------------------
+
+Library: React Hook Form (react-hook-form)
+
+Rules enforced:
+  Login:
+    - Email: required, valid email format
+    - Password: required, min 6 characters
+
+  Upload Content:
+    - Title: required, min 3 characters
+    - Subject: required (dropdown)
+    - File: required, type must be image/jpeg|image/png|image/gif, max 10 MB
+    - Start Time: required
+    - End Time: required, must be strictly after start time
+    - Rotation Duration: optional, 5–3600 seconds
+
+Reject Modal:
+    - Reason: required (enforced at submission, not via RHF)
+
+--------------------------------------------------------------------------------
+FILE UPLOAD UI
+--------------------------------------------------------------------------------
+
+- Drag-and-drop zone with visual feedback (border highlight on drag-over)
+- Click-to-browse fallback
+- File preview rendered before upload (URL.createObjectURL)
+- File type and size validation happens immediately on file selection
+- Error messages shown inline below the drop zone
+- Loading state during upload with spinner in submit button
+
+--------------------------------------------------------------------------------
+SCHEDULE STATUS LOGIC (UI Only)
+--------------------------------------------------------------------------------
+
+getScheduleStatus(startTime, endTime) in utils/helpers.js:
+  - now < startTime  → "scheduled"   (blue badge)
+  - now > endTime    → "expired"     (grey badge)
+  - otherwise        → "active"      (green pulsing badge)
+
+Live page filters: shows only approved content where now is between start and end.
+
+--------------------------------------------------------------------------------
+EDGE CASES HANDLED
+--------------------------------------------------------------------------------
+
+  ✓ Empty data states — EmptyState component with contextual icons/messages
+  ✓ API errors — ErrorState component with retry button
+  ✓ Loading states — Skeleton loaders and Spinner in buttons
+  ✓ Invalid login — toast error with helpful message
+  ✓ Upload failure — toast error from service layer
+  ✓ Invalid file type/size — inline error message, preview blocked
+  ✓ End time before start time — form validation error
+  ✓ Broken image URLs — onError handler hides img tag
+  ✓ Slow responses — loading states prevent double-submission
+  ✓ Escape key closes modals
+  ✓ Memoization on components (React.memo) and callbacks (useCallback, useMemo)
+  ✓ isMounted ref in useAsync prevents setState after unmount
+
+--------------------------------------------------------------------------------
+PERFORMANCE OPTIMIZATIONS
+--------------------------------------------------------------------------------
+
+  - React.lazy + Suspense: pages are code-split and loaded on demand
+  - React.memo: all shared UI components wrapped to prevent re-renders
+  - useCallback: fetchFn dependencies stable across renders
+  - useMemo: content filtering in AllContent computed only when deps change
+  - Images: loading="lazy" on all img tags
+  - useAsync isMounted ref: prevents memory leaks on page unmount
+
+--------------------------------------------------------------------------------
+ASSUMPTIONS
+--------------------------------------------------------------------------------
+
+  1. The backend will expose a REST API matching the service layer signatures.
+     The service layer is the single swap point — no component changes needed.
+
+  2. File uploads in production should use multipart/form-data. The current
+     mock creates an object URL for preview purposes.
+
+  3. Authentication uses localStorage for simplicity. Production deployments
+     should consider httpOnly cookies for token storage.
+
+  4. The /live/:teacherId page polls every 30 seconds. If WebSocket support
+     is added to the backend, refetch() can be replaced with a WS listener.
+
+  5. The rotation duration (rotationDuration) field is in seconds and used
+     client-side only to auto-advance content on the live page.
+
+  6. Demo password for all mock accounts is: demo123
+
+================================================================================
