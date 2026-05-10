@@ -2,7 +2,6 @@
 
 A role-based frontend for educational content management built with **React.js** and **Tailwind CSS**.
 ## Quick Start
-
 ```bash
 # 1. Install dependencies
 npm install
