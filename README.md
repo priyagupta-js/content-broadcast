@@ -5,7 +5,6 @@ A role-based frontend for educational content management built with **React.js**
 ```bash
 # 1. Install dependencies
 npm install
-
 # 2. Start the dev server
 npm start
 
